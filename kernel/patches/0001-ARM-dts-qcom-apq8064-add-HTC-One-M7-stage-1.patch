@@ -1,0 +1,281 @@
+From 153391046f5c279b900cd431807fbb69b8937a51 Mon Sep 17 00:00:00 2001
+From: Alex <Christian-Alexander141@users.noreply.github.com>
+Date: Fri, 27 Nov 2026 23:28:54 +0100
+Subject: [PATCH] ARM: dts: qcom: apq8064: add HTC One (M7), stage 1
+
+Minimal bring-up device tree for the HTC One (M7): eMMC, USB peripheral
+mode (debug channel), keys, ramoops and a memory layout that matches the
+vendor kernel.
+
+hboot hands over RAM via ATAGs. The vendor kernel ignored them and
+hard-coded three banks starting at 0x80600000, so clip the usable range
+with linux,usable-memory-range and mark the holes no-map.
+
+The display pipeline is intentionally left untouched (no MDP/DSI, no
+display regulators described) until the hboot scan-out address and the
+panel variant have been read from hardware.
+
+Hardware data derived from LineageOS/android_kernel_htc_m7 @ f6eb6496
+(arch/arm/mach-msm/board-m7*.c).
+
+Not yet tested on hardware.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ arch/arm/boot/dts/qcom/Makefile               |   1 +
+ .../arm/boot/dts/qcom/qcom-apq8064-htc-m7.dts | 231 ++++++++++++++++++
+ 2 files changed, 232 insertions(+)
+ create mode 100644 arch/arm/boot/dts/qcom/qcom-apq8064-htc-m7.dts
+
+diff --git a/arch/arm/boot/dts/qcom/Makefile b/arch/arm/boot/dts/qcom/Makefile
+index 6f89ba426..59ea61bd6 100644
+--- a/arch/arm/boot/dts/qcom/Makefile
++++ b/arch/arm/boot/dts/qcom/Makefile
+@@ -9,6 +9,7 @@ dtb-$(CONFIG_ARCH_QCOM) += \
+ 	qcom-apq8026-samsung-milletwifi.dtb \
+ 	qcom-apq8060-dragonboard.dtb \
+ 	qcom-apq8064-cm-qs600.dtb \
++	qcom-apq8064-htc-m7.dtb \
+ 	qcom-apq8064-ifc6410.dtb \
+ 	qcom-apq8064-sony-xperia-lagan-yuga.dtb \
+ 	qcom-apq8064-asus-nexus7-flo.dtb \
+diff --git a/arch/arm/boot/dts/qcom/qcom-apq8064-htc-m7.dts b/arch/arm/boot/dts/qcom/qcom-apq8064-htc-m7.dts
+new file mode 100644
+index 000000000..2a0166477
+--- /dev/null
++++ b/arch/arm/boot/dts/qcom/qcom-apq8064-htc-m7.dts
+@@ -0,0 +1,231 @@
++// SPDX-License-Identifier: GPL-2.0-only
++/*
++ * HTC One (M7) - bring-up device tree, stage 1 (boot to shell over USB)
++ *
++ * Hardware data derived from the HTC/LineageOS vendor kernel
++ * (LineageOS/android_kernel_htc_m7 @ f6eb6496, arch/arm/mach-msm/board-m7*.c).
++ *
++ * Deliberately minimal: nothing in here touches the display pipeline, so the
++ * panel, its regulators, the backlight IC and the MDP keep the state hboot
++ * left them in. The simple-framebuffer node is added once the scan-out
++ * address has been read from the hardware (see FalloutOS docs/htc-m7).
++ */
++
++#include <dt-bindings/gpio/gpio.h>
++#include <dt-bindings/input/input.h>
++#include <dt-bindings/mfd/qcom-rpm.h>
++#include <dt-bindings/pinctrl/qcom,pmic-gpio.h>
++
++#include "qcom-apq8064-v2.0.dtsi"
++#include "pm8921.dtsi"
++
++/*
++ * The M7 uses a Broadcom BCM4335 for WLAN/BT, not the Qualcomm WCNSS (riva).
++ * Dropping riva also frees its carve-out at 0x8f000000, which overlaps the
++ * HTC RAM console region used for ramoops below.
++ */
++/delete-node/ &riva;
++/delete-node/ &wcnss_mem;
++
++/ {
++	model = "HTC One (M7)";
++	compatible = "htc,m7", "qcom,apq8064";
++	chassis-type = "handset";
++
++	chosen {
++		/*
++		 * hboot reports RAM through ATAGs, which ARM_ATAG_DTB_COMPAT
++		 * copies into /memory. The vendor kernel ignored them
++		 * (m7_fixup) and hard-coded the banks below. Clip whatever
++		 * hboot reports, so neither the zImage decompressor nor the
++		 * kernel use 0x80000000-0x805fffff (SMEM, boot loader, TZ).
++		 */
++		linux,usable-memory-range = <0x80600000 0x7fa00000>;
++	};
++
++	/* Memory banks as hard-coded by the vendor kernel (2 GiB variant). */
++	/delete-node/ memory@0;
++	memory@80600000 {
++		device_type = "memory";
++		reg = <0x80600000 0x08600000>,
++		      <0x89000000 0x03f00000>,
++		      <0x90000000 0x70000000>;
++	};
++
++	reserved-memory {
++		/*
++		 * hboot places its ATAG list at base + tags_offset
++		 * (0x80600100). Keep it, so hboot-only data such as the panel
++		 * type (ATAG 0x4d534d74) stays readable after boot. The
++		 * decompressor and the initial page tables start at 0x80604000.
++		 */
++		hboot_atags: memory@80600000 {
++			reg = <0x80600000 0x00004000>;
++		};
++
++		/*
++		 * Holes in the vendor memory map. Marked no-map in case hboot
++		 * reports them as RAM: they hold firmware and TZ data, and
++		 * an access can trigger an XPU violation, i.e. a reset.
++		 */
++		hole0_mem: memory@88c00000 {
++			reg = <0x88c00000 0x00400000>;
++			no-map;
++		};
++
++		hole1_mem: memory@8cf00000 {
++			reg = <0x8cf00000 0x02200000>;
++			no-map;
++		};
++
++		/*
++		 * HTC RAM console (MSM_HTC_RAM_CONSOLE_PHYS on APQ8064),
++		 * preserved by hboot across warm resets: crash logs from a
++		 * reboot can be read from /sys/fs/pstore on the next boot.
++		 */
++		ramoops@8f100000 {
++			compatible = "ramoops";
++			reg = <0x8f100000 0x000e0000>;
++			record-size = <0x20000>;
++			console-size = <0x40000>;
++			pmsg-size = <0x20000>;
++		};
++
++		/* TZ log, watchdog bark register save area, rest of the hole */
++		hole2_mem: memory@8f1e0000 {
++			reg = <0x8f1e0000 0x00e20000>;
++			no-map;
++		};
++	};
++
++	gpio-keys {
++		compatible = "gpio-keys";
++		pinctrl-names = "default";
++		pinctrl-0 = <&gpio_keys_default>;
++
++		key-power {
++			label = "Power";
++			gpios = <&tlmm_pinmux 26 GPIO_ACTIVE_LOW>;
++			linux,code = <KEY_POWER>;
++			debounce-interval = <15>;
++			wakeup-source;
++		};
++
++		key-volume-up {
++			label = "Volume Up";
++			gpios = <&tlmm_pinmux 11 GPIO_ACTIVE_LOW>;
++			linux,code = <KEY_VOLUMEUP>;
++			debounce-interval = <15>;
++		};
++
++		key-volume-down {
++			label = "Volume Down";
++			gpios = <&tlmm_pinmux 77 GPIO_ACTIVE_LOW>;
++			linux,code = <KEY_VOLUMEDOWN>;
++			debounce-interval = <15>;
++		};
++	};
++};
++
++&pm8921 {
++	interrupts-extended = <&tlmm_pinmux 74 IRQ_TYPE_LEVEL_LOW>;
++};
++
++&rpm {
++	regulators {
++		compatible = "qcom,rpm-pm8921-regulators";
++
++		vdd_l1_l2_l12_l18-supply = <&pm8921_s4>;
++		vdd_l24-supply = <&pm8921_s1>;
++		vdd_l25-supply = <&pm8921_s1>;
++		vin_lvs1_3_6-supply = <&pm8921_s4>;
++		vin_lvs2-supply = <&pm8921_s1>;
++		vin_lvs4_5_7-supply = <&pm8921_s4>;
++
++		/*
++		 * Only what stage 1 needs. Display (l2, lvs5, lvs7), touch
++		 * (l15) and the audio codec rails are intentionally not
++		 * described yet, so Linux does not touch the state hboot
++		 * left them in.
++		 */
++
++		pm8921_s1: s1 {
++			regulator-min-microvolt = <1225000>;
++			regulator-max-microvolt = <1225000>;
++			qcom,switch-mode-frequency = <3200000>;
++			regulator-always-on;
++			bias-pull-down;
++		};
++
++		/* HSUSB_VDDCX */
++		pm8921_s3: s3 {
++			regulator-min-microvolt = <500000>;
++			regulator-max-microvolt = <1150000>;
++			qcom,switch-mode-frequency = <4800000>;
++			bias-pull-down;
++		};
++
++		/* sdc_vdd_io (eMMC), parent of most LDOs and switches */
++		pm8921_s4: s4 {
++			regulator-min-microvolt = <1800000>;
++			regulator-max-microvolt = <1800000>;
++			qcom,switch-mode-frequency = <1600000>;
++			qcom,force-mode = <QCOM_RPM_FORCE_MODE_AUTO>;
++			regulator-always-on;
++			bias-pull-down;
++		};
++
++		/* HSUSB_3p3 */
++		pm8921_l3: l3 {
++			regulator-min-microvolt = <3075000>;
++			regulator-max-microvolt = <3075000>;
++			bias-pull-down;
++		};
++
++		/* HSUSB_1p8 */
++		pm8921_l4: l4 {
++			regulator-min-microvolt = <1800000>;
++			regulator-max-microvolt = <1800000>;
++			regulator-always-on;
++		};
++
++		/* sdc_vdd (eMMC) */
++		pm8921_l5: l5 {
++			regulator-min-microvolt = <2950000>;
++			regulator-max-microvolt = <2950000>;
++			bias-pull-down;
++		};
++	};
++};
++
++/* eMMC */
++&sdcc1 {
++	vmmc-supply = <&pm8921_l5>;
++	vqmmc-supply = <&pm8921_s4>;
++
++	status = "okay";
++};
++
++&usb_hs1_phy {
++	v3p3-supply = <&pm8921_l3>;
++	v1p8-supply = <&pm8921_l4>;
++};
++
++/*
++ * Peripheral only for now: USB networking / serial gadget is the debug
++ * channel while the display is not driven by Linux.
++ */
++&usb1 {
++	dr_mode = "peripheral";
++
++	status = "okay";
++};
++
++&tlmm_pinmux {
++	gpio_keys_default: gpio-keys-default-state {
++		pins = "gpio11", "gpio26", "gpio77";
++		function = "gpio";
++		drive-strength = <2>;
++		bias-pull-up;
++	};
++};
+-- 
+2.53.0
+

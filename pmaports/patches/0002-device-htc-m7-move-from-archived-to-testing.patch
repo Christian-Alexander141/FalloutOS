@@ -1,0 +1,33 @@
+From 43ba8bd65116fff835db8842e2e5aa40921b9617 Mon Sep 17 00:00:00 2001
+From: Alex <Christian-Alexander141@users.noreply.github.com>
+Date: Fri, 27 Nov 2026 23:40:03 +0100
+Subject: [PATCH 2/3] device-htc-m7: move from archived to testing
+
+Pure rename; the port is reworked for the mainline kernel in the next
+commit.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ device/{archived => testing}/device-htc-m7/APKBUILD            | 0
+ device/{archived => testing}/device-htc-m7/deviceinfo          | 0
+ device/{archived => testing}/device-htc-m7/kernel-cmdline.conf | 0
+ 3 files changed, 0 insertions(+), 0 deletions(-)
+ rename device/{archived => testing}/device-htc-m7/APKBUILD (100%)
+ rename device/{archived => testing}/device-htc-m7/deviceinfo (100%)
+ rename device/{archived => testing}/device-htc-m7/kernel-cmdline.conf (100%)
+
+diff --git a/device/archived/device-htc-m7/APKBUILD b/device/testing/device-htc-m7/APKBUILD
+similarity index 100%
+rename from device/archived/device-htc-m7/APKBUILD
+rename to device/testing/device-htc-m7/APKBUILD
+diff --git a/device/archived/device-htc-m7/deviceinfo b/device/testing/device-htc-m7/deviceinfo
+similarity index 100%
+rename from device/archived/device-htc-m7/deviceinfo
+rename to device/testing/device-htc-m7/deviceinfo
+diff --git a/device/archived/device-htc-m7/kernel-cmdline.conf b/device/testing/device-htc-m7/kernel-cmdline.conf
+similarity index 100%
+rename from device/archived/device-htc-m7/kernel-cmdline.conf
+rename to device/testing/device-htc-m7/kernel-cmdline.conf
+-- 
+2.53.0
+

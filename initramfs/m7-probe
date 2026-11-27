@@ -1,0 +1,150 @@
+#!/bin/sh
+# FalloutOS - HTC One M7 hardware probe (read-only)
+#
+# Collects what is needed to finish the display bring-up:
+#   * hboot ATAG list (panel type, memory banks, command line)
+#   * MDP4 scan-out state left by hboot (address, size, stride, format)
+#   * kernel view of memory, clocks and devices
+#
+# MMIO is only read when the MDP clocks are confirmed running; reading an
+# unclocked register hangs the bus and resets the phone. FORCE=1 overrides.
+
+section() { printf '\n===== %s =====\n' "$*"; }
+
+hex() { printf '0x%08x' "$1"; }
+
+rd32() { devmem "$1" 32; }
+
+section "kernel"
+uname -a
+cat /proc/cmdline
+
+section "memory"
+cat /proc/meminfo | head -n 3
+cat /proc/iomem
+for n in /sys/firmware/devicetree/base/memory*; do
+	[ -e "$n/reg" ] || continue
+	echo "$n:"
+	hexdump -v -e '2/4 "%08x " "\n"' "$n/reg" 2>/dev/null
+done
+if [ -e /sys/firmware/devicetree/base/chosen/linux,usable-memory-range ]; then
+	echo "usable-memory-range:"
+	hexdump -v -e '2/4 "%08x " "\n"' \
+		/sys/firmware/devicetree/base/chosen/linux,usable-memory-range
+fi
+
+# Little-endian 32-bit words: <size in words> <tag> <payload...>
+section "hboot ATAG list @ 0x80600100"
+panel=""
+addr=$((0x80600100))
+end=$((0x80604000))
+first=1
+count=0
+while [ $addr -lt $end ] && [ $count -lt 64 ]; do
+	size=$(($(rd32 $addr)))
+	tag=$(($(rd32 $((addr + 4)))))
+	if [ $first -eq 1 ] && [ $tag -ne $((0x54410001)) ]; then
+		echo "no ATAG_CORE at $(hex $addr) (found tag $(hex $tag)); list not preserved"
+		break
+	fi
+	first=0
+	[ $size -eq 0 ] && { echo "ATAG_NONE"; break; }
+	[ $size -gt 512 ] && { echo "implausible size $size at $(hex $addr)"; break; }
+	printf 'tag %s size %3d words @ %s:' "$(hex $tag)" "$size" "$(hex $addr)"
+	w=2
+	while [ $w -lt $size ] && [ $w -lt 8 ]; do
+		printf ' %s' "$(rd32 $((addr + w * 4)))"
+		w=$((w + 1))
+	done
+	echo
+	case $tag in
+	$((0x4d534d74))) panel=$(rd32 $((addr + 8))) ;;
+	$((0x54410009)))
+		# ATAG_CMDLINE: dump as text
+		i=8
+		s=""
+		while [ $i -lt $((size * 4)) ]; do
+			b=$(($(devmem $((addr + i)) 8)))
+			[ $b -eq 0 ] && break
+			s="$s$(printf "\\$(printf '%03o' $b)")"
+			i=$((i + 1))
+		done
+		echo "  cmdline: $s"
+		;;
+	esac
+	addr=$((addr + size * 4))
+	count=$((count + 1))
+done
+
+section "panel"
+if [ -n "$panel" ]; then
+	case $(($panel)) in
+	$((0x00940065))) name="JDI/Samsung, command mode" ;;
+	$((0x02940065))) name="JDI/Samsung C2, command mode" ;;
+	$((0x04940065))) name="JDI/Samsung C2_1, command mode" ;;
+	$((0x06940065))) name="JDI/Samsung C2_2, command mode" ;;
+	$((0x00940066))) name="Sharp/Novatek (no init code in vendor kernel)" ;;
+	$((0x00940067))) name="Sharp/Renesas, video mode (continuous splash)" ;;
+	$((0x00940069))) name="Sharp/Renesas C1, command mode" ;;
+	$((0x00940074))) name="JDI/Renesas, command mode" ;;
+	*) name="unknown" ;;
+	esac
+	echo "panel_type=$panel ($name)"
+else
+	echo "panel_type=unknown (ATAG 0x4d534d74 not found)"
+fi
+
+section "clocks"
+summary=/sys/kernel/debug/clk/clk_summary
+mdp_ok=0
+if [ -r "$summary" ]; then
+	head -n 3 "$summary"
+	grep -E '^\s*(mdp|dsi|pxo|cxo)' "$summary"
+	# The "hardware enable" column reads Y for clocks that are running.
+	on=$(awk '$1=="mdp_ahb_clk" || $1=="mdp_clk" || $1=="mdp_axi_clk" {
+		for (i = 2; i <= NF; i++) if ($i == "Y") { n++; break } }
+		END { print n + 0 }' "$summary")
+	[ "$on" -eq 3 ] && mdp_ok=1
+	echo "MDP clocks running: $on/3"
+else
+	echo "$summary not readable"
+fi
+
+section "MDP4 scan-out (0x05100000)"
+if [ $mdp_ok -eq 1 ] || [ "$FORCE" = 1 ]; then
+	mdp=$((0x05100000))
+	ver=$(rd32 $mdp)
+	intf=$(rd32 $((mdp + 0x38)))
+	cfg=$(rd32 $((mdp + 0x90000)))
+	size=$(rd32 $((mdp + 0x90004)))
+	base=$(rd32 $((mdp + 0x90008)))
+	stride=$(rd32 $((mdp + 0x9000c)))
+	dsi_en=$(rd32 $((mdp + 0xe0000)))
+	echo "VERSION          $ver"
+	echo "DISP_INTF_SEL    $intf (bit6 = DSI video, bit7 = DSI command)"
+	echo "DMA_P CONFIG     $cfg"
+	echo "DMA_P SRC_SIZE   $size (height << 16 | width)"
+	echo "DMA_P SRC_BASE   $base"
+	echo "DMA_P SRC_STRIDE $stride"
+	echo "DSI_ENABLE       $dsi_en (video timing generator)"
+	w=$(($size & 0xffff))
+	h=$(($size >> 16))
+	echo
+	echo "simple-framebuffer candidate:"
+	echo "  reg    = <$base $(hex $(($stride * $h)))>;"
+	echo "  width  = <$w>; height = <$h>; stride = <$(($stride))>;"
+	echo "  bytes per pixel: $(($stride / ($w > 0 ? $w : 1)))"
+else
+	echo "skipped: MDP clocks not confirmed running (FORCE=1 to override)"
+fi
+
+section "devices"
+ls /sys/class/udc /sys/class/mmc_host /sys/class/input /sys/class/graphics \
+	/sys/class/backlight 2>/dev/null
+cat /proc/partitions
+
+section "pstore (previous boot)"
+ls -la /sys/fs/pstore 2>/dev/null
+
+section "dmesg"
+dmesg

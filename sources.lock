@@ -1,0 +1,64 @@
+# FalloutOS - pinned inputs for the HTC One M7 build.
+# Sourced by scripts/*.sh. Every input is identified by a git commit or a
+# cryptographic hash; the scripts refuse to build if anything differs.
+
+# --- pmaports (Nura, formerly postmarketOS) ----------------------------------
+# gitlab.postmarketos.org redirects to gitlab.nura.eco since the 2026-09-27
+# rename; same host (OSUOSL).
+PMAPORTS_URL="https://gitlab.nura.eco/postmarketOS/pmaports.git"
+PMAPORTS_COMMIT="3156402cead60aae9f911147fe356de2cdb6630f"   # 2026-11-27
+
+# Base kernel config taken from pmaports at PMAPORTS_COMMIT
+KERNEL_BASE_CONFIG="device/testing/linux-postmarketos-qcom-apq8064/config-postmarketos-qcom-apq8064.armv7"
+KERNEL_BASE_CONFIG_SHA512="a1b77bf63f8b2d68b6aab6f769599c0c2d09f1b6ddddf75dcafa3a1ce5cd00cf067fb2f3045d3816d511f4cb99afcf4a9683e9bc405e52ba638ef2afb7b13d3f"
+
+# --- Kernel: apq8064-mainline fork, Linux 7.2 ------------------------------
+# Same commit as pmaports linux-postmarketos-qcom-apq8064 7.2-r0. Fetched by
+# commit hash (git verifies the content); see docs for the tarball issue.
+KERNEL_URL="https://github.com/apq8064-mainline/linux.git"
+KERNEL_COMMIT="9e4514751f87a2f2034c6707396794a74337866c"    # 2026-10-18
+KERNEL_VERSION="7.2.0"
+# Commit-pinned tarball (for pmaports), sha512 as of 2026-11-27
+KERNEL_TARBALL_URL="https://github.com/apq8064-mainline/linux/archive/${KERNEL_COMMIT}.tar.gz"
+KERNEL_TARBALL_SHA512="5fd7d34875a8439d7cfc4a7b4ece33c2d6662a0aa123dc5640fbd13e109e7c992e1ecd874b93782d2e0c8d4e97cd827b2e77c3b06d027a7412287bddcdf372f3"
+
+# --- Cross toolchain: kernel.org crosstool, GCC 15.2.0, no libc ------------
+TOOLCHAIN_BASE="https://mirrors.edge.kernel.org/pub/tools/crosstool/files/bin/x86_64/15.2.0"
+TOOLCHAIN_FILE="x86_64-gcc-15.2.0-nolibc-arm-linux-gnueabi.tar.xz"
+TOOLCHAIN_SHA256="1d76128ba6a2e759a2fa1851c72e95ed6a6e86b97ab0adce5660e62fad23b82a"
+# sha256sums.asc is signed by "Kernel.org checksum autosigner"; key from
+# git.kernel.org/pub/scm/docs/kernel/pgpkeys.git (keys/632D3A06589DA6B1.asc)
+TOOLCHAIN_SIGNER_FPR="B8868C80BA62A1FFFAF5FDA9632D3A06589DA6B1"
+TOOLCHAIN_PREFIX="gcc-15.2.0-nolibc/arm-linux-gnueabi/bin/arm-linux-gnueabi-"
+
+# --- Userspace for the stage-1 initramfs: Debian 13 busybox-static ---------
+# Alpine's busybox lacks devmem/telnetd/udhcpd; Debian's static build has them.
+# Chain: InRelease (Debian Stable Release Key 13) -> Packages.xz -> .deb
+BUSYBOX_DEB="busybox-static_1.37.0-6+b9_armhf.deb"
+BUSYBOX_DEB_URL="https://deb.debian.org/debian/pool/main/b/busybox/${BUSYBOX_DEB}"
+BUSYBOX_DEB_SNAPSHOT_URL="https://snapshot.debian.org/file/188a1b20b6150354ee95a5a6405d826e3e6fdaa5"
+BUSYBOX_DEB_SHA256="8b35210e08d559ecc0ddb660dd96f6f9694f69eb27f1dc608f5eeda56d94509e"
+BUSYBOX_BIN_SHA256="0a58280553462be5d8064f510a8abceef2610fb549d82f52027bcfc9cbdf9d1d"
+DEBIAN_RELEASE_KEY_FPR="41587F7DB8C774BCCF131416762F67A0B2C39DE4"
+
+# --- Reproducibility ---------------------------------------------------------
+# Kernel commit date; used for every timestamp in the build outputs.
+SOURCE_DATE_EPOCH="1792296072"
+KBUILD_BUILD_USER="falloutos"
+KBUILD_BUILD_HOST="falloutos"
+KBUILD_BUILD_VERSION="1"
+
+# --- Boot image (HTC hboot, values from LineageOS BoardConfigCommon.mk) -----
+BOOT_BASE="0x80600000"
+BOOT_KERNEL_OFFSET="0x00008000"
+# Vendor value 0x01800000 leaves only ~24 MiB for the decompressed kernel;
+# a mainline kernel needs more, so the ramdisk moves to base + 64 MiB.
+BOOT_RAMDISK_OFFSET="0x04000000"
+BOOT_SECOND_OFFSET="0x00f00000"
+BOOT_TAGS_OFFSET="0x00000100"
+BOOT_PAGESIZE="2048"
+BOOT_PARTITION_SIZE="16777216"
+
+# --- Reference only: the archived downstream port --------------------------
+DOWNSTREAM_KERNEL_URL="https://github.com/LineageOS/android_kernel_htc_m7/archive/f6eb6496406f5a06cdd4716e494082d78df70e83.tar.gz"
+DOWNSTREAM_KERNEL_SHA512="7014029604b8c448c7d2d6302b9404521d89b12a3df687f3aee10e73cd49b3c31fbd5a3db92c082eeda93e0e83b00487d0ee5e6311f4f9fcb32a4eb139d0d231"

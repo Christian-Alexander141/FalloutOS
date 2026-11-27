@@ -1,0 +1,118 @@
+From 5c9a6747d278fb97475afa787518b4151d1d2c38 Mon Sep 17 00:00:00 2001
+From: Alex <Christian-Alexander141@users.noreply.github.com>
+Date: Fri, 27 Nov 2026 23:40:17 +0100
+Subject: [PATCH 3/3] device-htc-m7: switch to the mainline apq8064 kernel
+
+The downstream 3.4 kernel (linux-htc-m7, stays archived) never brought
+up the display without Android userspace and does not build with
+current compilers.
+
+Use linux-postmarketos-qcom-apq8064 with the new qcom-apq8064-htc-m7
+device tree, appended to the zImage for hboot. Move the ramdisk to
+base + 64 MiB so the decompressed kernel cannot overwrite it.
+
+The *_ignore_unused options keep the display state hboot left behind
+while Linux has no panel driver for this device.
+
+Not yet tested on hardware.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ device/testing/device-htc-m7/APKBUILD         | 20 ++++++++++---------
+ device/testing/device-htc-m7/deviceinfo       | 12 +++++++----
+ .../testing/device-htc-m7/kernel-cmdline.conf |  8 ++++----
+ 3 files changed, 23 insertions(+), 17 deletions(-)
+
+diff --git a/device/testing/device-htc-m7/APKBUILD b/device/testing/device-htc-m7/APKBUILD
+index 633369d..68ad262 100644
+--- a/device/testing/device-htc-m7/APKBUILD
++++ b/device/testing/device-htc-m7/APKBUILD
+@@ -1,15 +1,18 @@
+-# Archived: unmaintained
+-# Reference: <https://postmarketos.org/devicepkg>
++# Reference: <https://nura.eco/devicepkg>
+ maintainer=""
+ pkgname=device-htc-m7
+-pkgdesc="HTC One M7"
+-pkgver=4
++pkgdesc="HTC One (M7)"
++pkgver=5
+ pkgrel=0
+-url="https://postmarketos.org"
++url="https://nura.eco"
+ license="MIT"
+ arch="armv7"
+ options="!check !archcheck"
+-depends="postmarketos-base linux-htc-m7 mkbootimg"
++depends="
++	linux-postmarketos-qcom-apq8064
++	mkbootimg
++	postmarketos-base
++"
+ makedepends="devicepkg-dev"
+ source="deviceinfo kernel-cmdline.conf"
+ 
+@@ -21,8 +24,7 @@ package() {
+ 	devicepkg_package $startdir $pkgname
+ }
+ 
+-
+ sha512sums="
+-c3ef08ba1d05ddb2389930ec28f04261037d29543a51aca86ec917a620bdc260fda66fd4496c5573018596978c8629ffe614483570af050de26954c8530b2e52  deviceinfo
+-12d79f0589d323e0e24ed06d3015cc95c21f67743603753fdd3b6f0a74f19b66b5e96b6252a4d6e40d1b5f7718ab3d8a7751a745679ecae1097c2ede0e0e9871  kernel-cmdline.conf
++41ce5e3f134f65eaf47e5bb0710a22f0c128acd8163839b6ed72cb3a907716d418e5167b559a2a64bba1a43eb6cda86e5d74b5504b5693342db50e229f2eda13  deviceinfo
++f5b64cbfa982992f51ed84795173b2a71f0ff40c20ea3f1bc3ca31e2e6a4880ab28d7e75b7ee36e62bbf716802b935efa57e7ea7d508cdfcd94a7ed3f2cbb6f2  kernel-cmdline.conf
+ "
+diff --git a/device/testing/device-htc-m7/deviceinfo b/device/testing/device-htc-m7/deviceinfo
+index 3df44a6..54825d6 100644
+--- a/device/testing/device-htc-m7/deviceinfo
++++ b/device/testing/device-htc-m7/deviceinfo
+@@ -1,11 +1,13 @@
+-# Reference: <https://postmarketos.org/deviceinfo>
++# Reference: <https://nura.eco/deviceinfo>
+ # Please use double quotes only. You can source this file in shell scripts.
+ 
+ deviceinfo_format_version="0"
+-deviceinfo_name="HTC One M7"
++deviceinfo_name="HTC One (M7)"
+ deviceinfo_manufacturer="HTC"
+ deviceinfo_codename="htc-m7"
+ deviceinfo_year="2013"
++deviceinfo_dtb="qcom-apq8064-htc-m7"
++deviceinfo_append_dtb="true"
+ deviceinfo_arch="armv7"
+ 
+ # Device related
+@@ -14,12 +16,14 @@ deviceinfo_screen_width="1080"
+ deviceinfo_screen_height="1920"
+ 
+ # Bootloader related
++# hboot boots an Android boot image with the DTB appended to the zImage.
++# The vendor ramdisk offset (0x01800000) leaves only ~24 MiB for the
++# decompressed kernel, too little for mainline: use base + 64 MiB.
+ deviceinfo_flash_method="fastboot"
+ deviceinfo_generate_bootimg="true"
+ deviceinfo_flash_offset_base="0x80600000"
+ deviceinfo_flash_offset_kernel="0x00008000"
+-deviceinfo_flash_offset_ramdisk="0x01800000"
++deviceinfo_flash_offset_ramdisk="0x04000000"
+ deviceinfo_flash_offset_second="0x00f00000"
+ deviceinfo_flash_offset_tags="0x00000100"
+ deviceinfo_flash_pagesize="2048"
+-
+diff --git a/device/testing/device-htc-m7/kernel-cmdline.conf b/device/testing/device-htc-m7/kernel-cmdline.conf
+index 47ac460..d3a3be6 100644
+--- a/device/testing/device-htc-m7/kernel-cmdline.conf
++++ b/device/testing/device-htc-m7/kernel-cmdline.conf
+@@ -1,4 +1,4 @@
+-console=none
+-androidboot.hardware=qcom
+-user_debug=31
+-buildvariant=userdebug
++clk_ignore_unused
++pd_ignore_unused
++regulator_ignore_unused
++console=tty0
+-- 
+2.53.0
+
